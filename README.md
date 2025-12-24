@@ -1,4 +1,4 @@
-# Happy Journey - AI-Powered Travel Advisor
+ # Happy Journey - AI-Powered Travel Advisor
 
 A comprehensive travel planning application built with Next.js, Clerk authentication, Firebase (Firestore + Storage), and advanced AI models for intelligent trip planning and suggestions.
 
