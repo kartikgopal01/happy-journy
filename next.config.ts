@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
   images: {
     domains: [],
   },
+  // Set Turbopack root to silence workspace warning
+  turbopack: {
+    root: __dirname,
+  },
 };
 
 export default nextConfig;
