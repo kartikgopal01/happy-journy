@@ -274,7 +274,7 @@ export async function GET(request: NextRequest) {
 }
 
 // Function to calculate transportation cost for a specific route
-export function calculateTransportationCost(
+function calculateTransportationCost(
   origin: string, 
   destination: string, 
   mode: string, 

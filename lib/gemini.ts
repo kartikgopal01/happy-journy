@@ -14,8 +14,9 @@ export function getGeminiClient() {
 
 export function getGenerativeModel(modelName?: string) {
   const client = getGeminiClient();
-  // Default to a widely supported v1beta-compatible text model
-  const resolved = modelName || process.env.GEMINI_MODEL || "gemini-pro";
+  // Use gemini-1.5-flash or gemini-1.5-pro which are supported in v1beta
+  // Fallback to gemini-pro for backward compatibility
+  const resolved = modelName || process.env.GEMINI_MODEL || "gemini-1.5-flash";
   return client.getGenerativeModel({ model: resolved });
 }
 
