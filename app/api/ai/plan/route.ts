@@ -4,6 +4,7 @@ import { getGenerativeModel } from "@/lib/gemini";
 import { getGroqClient, getGroqModel } from "@/lib/groq";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { generateMapsSearchUrl, generateLocationQuery, generateTripRoute } from "@/lib/maps";
+import { validatePlacesInIndia } from "@/lib/placeValidator";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -74,6 +75,18 @@ export async function POST(request: Request) {
   
   if (!places || places.length === 0) {
     return NextResponse.json({ error: "Missing places" }, { status: 400 });
+  }
+
+  // Validate that all places are within India
+  const validation = await validatePlacesInIndia(places);
+  if (!validation.valid) {
+    return NextResponse.json(
+      { 
+        error: validation.message || "Please provide places within India",
+        invalidPlaces: validation.invalidPlaces
+      },
+      { status: 400 }
+    );
   }
 
   const placesList = Array.isArray(places) ? places.join(", ") : places;

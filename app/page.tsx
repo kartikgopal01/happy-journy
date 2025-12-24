@@ -72,6 +72,7 @@ export default function Home() {
   const [planResult, setPlanResult] = useState<any | null>(null);
   const [suggestResult, setSuggestResult] = useState<any | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string>("plan");
 
   // Local places near current user
   const { status: geoStatus, location, error: geoError, request: requestLocation } = useGeolocation();
@@ -264,13 +265,13 @@ export default function Home() {
   }, [location, fallbackLoc]);
 
   // Form states for plan
-  const [places, setPlaces] = useState<string[]>([""]);
-  const [days, setDays] = useState(3);
-  const [travelers, setTravelers] = useState(2);
-  const [budget, setBudget] = useState(50000);
-  const [travelStyle, setTravelStyle] = useState("balanced");
-  const [accommodationType, setAccommodationType] = useState("hotel");
-  const [transportationType, setTransportationType] = useState("mix");
+  const [places, setPlaces] = useState<string[]>([]);
+  const [days, setDays] = useState<number | undefined>(undefined);
+  const [travelers, setTravelers] = useState<number | undefined>(undefined);
+  const [budget, setBudget] = useState<number | undefined>(undefined);
+  const [travelStyle, setTravelStyle] = useState("");
+  const [accommodationType, setAccommodationType] = useState("");
+  const [transportationType, setTransportationType] = useState("");
   const [vehicleType, setVehicleType] = useState("");
   const [vehicleMileage, setVehicleMileage] = useState("");
   const [fuelType, setFuelType] = useState("");
@@ -348,14 +349,20 @@ export default function Home() {
   }, [expandedSuggestion]);
 
   // Form states for suggest
-  const [budgetINR, setBudgetINR] = useState(50000);
-  const [suggestDays, setSuggestDays] = useState(3);
+  const [budgetINR, setBudgetINR] = useState<number | undefined>(undefined);
+  const [suggestDays, setSuggestDays] = useState<number | undefined>(undefined);
   const [preferredLocation, setPreferredLocation] = useState("");
-  const [includeAccommodation, setIncludeAccommodation] = useState(true);
-  const [suggestTravelStyle, setSuggestTravelStyle] = useState("balanced");
+  const [includeAccommodation, setIncludeAccommodation] = useState(false);
+  const [suggestTravelStyle, setSuggestTravelStyle] = useState("");
   const [suggestInterests, setSuggestInterests] = useState<string[]>([]);
-  const [preferredSeason, setPreferredSeason] = useState("any");
-  const [groupSize, setGroupSize] = useState(2);
+  const [preferredSeason, setPreferredSeason] = useState("");
+  const [groupSize, setGroupSize] = useState<number | undefined>(undefined);
+  const [suggestTransportationType, setSuggestTransportationType] = useState("");
+  const [suggestVehicleType, setSuggestVehicleType] = useState("");
+  const [suggestVehicleMileage, setSuggestVehicleMileage] = useState("");
+  const [suggestFuelType, setSuggestFuelType] = useState("");
+  const [suggestFuelCostPerLiter, setSuggestFuelCostPerLiter] = useState("");
+  const [budgetWarning, setBudgetWarning] = useState<string | null>(null);
 
   const interestOptions = [
     "Culture & Heritage", "Adventure & Trekking", "Wildlife & Nature", "Beach & Relaxation",
@@ -373,12 +380,14 @@ export default function Home() {
 
   async function createPlan() {
     setLoading(true);
+    setPlanResult(null); // Clear previous results
     setSuggestResult(null);
     setErrorMsg(null);
     try {
       const validPlaces = places.filter(p => p.trim() !== "");
       if (validPlaces.length === 0) {
         setErrorMsg("Please add at least one destination");
+        setPlanResult(null); // Clear result on error
         return;
       }
 
@@ -409,18 +418,142 @@ export default function Home() {
       if (!res.ok) {
         const extra = data?.details || (typeof data?.raw === "string" ? `: ${data.raw.slice(0, 200)}...` : "");
         setErrorMsg((data?.error || "Failed to generate plan") + extra);
+        setPlanResult(null); // Clear result on error
         return;
       }
       setPlanResult(data.plan || data);
+      setErrorMsg(null); // Clear error on success
     } finally {
       setLoading(false);
     }
   }
 
+  // Calculate minimum required budget based on inputs
+  function calculateMinimumBudget(): number {
+    if (!suggestDays || !groupSize) return 0;
+    
+    const days = suggestDays;
+    const travelers = groupSize;
+    
+    // Base budget per person per day based on travel style
+    let baseBudgetPerPersonPerDay = 0;
+    switch (suggestTravelStyle) {
+      case "budget": baseBudgetPerPersonPerDay = 1500; break;
+      case "balanced": baseBudgetPerPersonPerDay = 2500; break;
+      case "luxury": baseBudgetPerPersonPerDay = 5000; break;
+      case "adventure": baseBudgetPerPersonPerDay = 3000; break;
+      default: baseBudgetPerPersonPerDay = 2000; // Default if not selected
+    }
+    
+    // Calculate base budget
+    let totalBudget = baseBudgetPerPersonPerDay * days * travelers;
+    
+    // Add accommodation cost if included
+    if (includeAccommodation) {
+      let accommodationPerNight = 2000; // Default mid-range
+      const accommodationCost = accommodationPerNight * days;
+      totalBudget += accommodationCost;
+    }
+    
+    // Add transportation cost
+    let transportationCost = 0;
+    if (suggestTransportationType === "own-vehicle" && suggestVehicleMileage && suggestFuelCostPerLiter) {
+      const fuelCost = parseFloat(suggestFuelCostPerLiter);
+      const mileage = parseFloat(suggestVehicleMileage);
+      if (!isNaN(fuelCost) && !isNaN(mileage) && mileage > 0) {
+        const estimatedDistance = days * 200; // Average 200km per day
+        const fuelNeeded = estimatedDistance / mileage;
+        transportationCost = Math.round(fuelNeeded * fuelCost);
+      }
+    } else if (suggestTransportationType && suggestTransportationType !== "na") {
+      let transportPerPersonPerDay = 0;
+      switch (suggestTransportationType) {
+        case "train": transportPerPersonPerDay = 500; break;
+        case "bus": transportPerPersonPerDay = 300; break;
+        case "car": transportPerPersonPerDay = 2000; break;
+        case "flight": transportPerPersonPerDay = 3000; break;
+        case "mix": transportPerPersonPerDay = 1000; break;
+        default: transportPerPersonPerDay = 1000;
+      }
+      transportationCost = transportPerPersonPerDay * days * travelers;
+    }
+    
+    totalBudget += transportationCost;
+    
+    // Add food cost
+    let foodCostPerPersonPerDay = 0;
+    switch (suggestTravelStyle) {
+      case "budget": foodCostPerPersonPerDay = 500; break;
+      case "balanced": foodCostPerPersonPerDay = 800; break;
+      case "luxury": foodCostPerPersonPerDay = 2000; break;
+      case "adventure": foodCostPerPersonPerDay = 1000; break;
+      default: foodCostPerPersonPerDay = 800;
+    }
+    const foodCost = foodCostPerPersonPerDay * days * travelers;
+    totalBudget += foodCost;
+    
+    // Add attractions cost
+    let attractionsCostPerPersonPerDay = 0;
+    switch (suggestTravelStyle) {
+      case "budget": attractionsCostPerPersonPerDay = 300; break;
+      case "balanced": attractionsCostPerPersonPerDay = 600; break;
+      case "luxury": attractionsCostPerPersonPerDay = 1500; break;
+      case "adventure": attractionsCostPerPersonPerDay = 1000; break;
+      default: attractionsCostPerPersonPerDay = 600;
+    }
+    const attractionsCost = attractionsCostPerPersonPerDay * days * travelers;
+    totalBudget += attractionsCost;
+    
+    // Add miscellaneous (10% of total)
+    const miscellaneousCost = Math.round(totalBudget * 0.1);
+    totalBudget += miscellaneousCost;
+    
+    return Math.round(totalBudget);
+  }
+
   async function suggestTrips() {
     setLoading(true);
     setPlanResult(null);
+    setSuggestResult(null); // Clear previous results
     setErrorMsg(null);
+    setBudgetWarning(null);
+    
+    // Validate budget
+    if (!budgetINR) {
+      setErrorMsg("Please enter your total budget");
+      setLoading(false);
+      return;
+    }
+    
+    if (!suggestDays || !groupSize) {
+      setErrorMsg("Please enter number of days and group size");
+      setLoading(false);
+      return;
+    }
+    
+    // Calculate minimum budget and check if provided budget is sufficient
+    const minimumBudget = calculateMinimumBudget();
+    if (minimumBudget > 0 && budgetINR < minimumBudget) {
+      const budgetDifference = minimumBudget - budgetINR;
+      // More flexible tolerance: ₹1000 or 15% of minimum budget, whichever is higher
+      // This allows small differences (like ₹500-1000) to still generate results
+      const toleranceAmount = Math.max(1000, Math.round(minimumBudget * 0.15));
+      
+      // If budget is less than minimum by more than tolerance amount, block it
+      if (budgetDifference > toleranceAmount) {
+        setBudgetWarning(`Your budget of ₹${budgetINR.toLocaleString()} is significantly less than the estimated minimum of ₹${minimumBudget.toLocaleString()} based on your selections. Please increase your budget to at least ₹${minimumBudget.toLocaleString()} to get better results.`);
+        setSuggestResult(null); // Clear any previous results
+        setLoading(false);
+        return; // Stop execution, don't generate results
+      } else {
+        // Budget is close enough (within tolerance), allow it but show a gentle warning
+        setBudgetWarning(`Note: Your budget is slightly below the recommended minimum of ₹${minimumBudget.toLocaleString()}. Results will be optimized for your budget of ₹${budgetINR.toLocaleString()}.`);
+        // Continue with generation - don't block
+      }
+    } else {
+      setBudgetWarning(null);
+    }
+    
     try {
       const res = await fetch("/api/ai/suggest", {
         method: "POST",
@@ -430,19 +563,26 @@ export default function Home() {
           days: suggestDays,
           preferredLocation: preferredLocation || undefined,
           includeAccommodation,
-          travelStyle: suggestTravelStyle,
+          travelStyle: suggestTravelStyle || undefined,
           interests: suggestInterests,
           preferredSeason: preferredSeason || undefined,
-          groupSize
+          groupSize,
+          transportationType: suggestTransportationType || undefined,
+          vehicleType: suggestTransportationType === "own-vehicle" ? suggestVehicleType : undefined,
+          vehicleMileage: suggestTransportationType === "own-vehicle" ? suggestVehicleMileage : undefined,
+          fuelType: suggestTransportationType === "own-vehicle" ? suggestFuelType : undefined,
+          fuelCostPerLiter: suggestTransportationType === "own-vehicle" ? suggestFuelCostPerLiter : undefined,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
         const extra = data?.details || (typeof data?.raw === "string" ? `: ${data.raw.slice(0, 200)}...` : "");
         setErrorMsg((data?.error || "Failed to suggest destinations") + extra);
+        setSuggestResult(null); // Clear result on error
         return;
       }
       setSuggestResult(data.suggestions || data);
+      setErrorMsg(null); // Clear error on success
     } finally {
       setLoading(false);
     }
@@ -1114,7 +1254,14 @@ export default function Home() {
             </div>
           </section>
 
-          <Tabs defaultValue="plan" className="w-full">
+          <Tabs value={activeTab} onValueChange={(value) => {
+            setActiveTab(value);
+            // Clear all results and errors when switching tabs
+            setPlanResult(null);
+            setSuggestResult(null);
+            setErrorMsg(null);
+            setBudgetWarning(null);
+          }} className="w-full">
           <TabsList className="grid w-full grid-cols-2 mb-6 sm:mb-8 gap-1">
             <TabsTrigger value="plan" className="flex items-center gap-2 bg-purple-100 text-purple-700 data-[state=active]:bg-purple-700 data-[state=active]:text-white hover:bg-purple-200 rounded-full btn-mobile touch-target">
               <MapPin className="w-4 h-4" />
@@ -1143,27 +1290,42 @@ export default function Home() {
                 {/* Places Section */}
                 <div className="space-y-3">
                   <Label className="text-mobile-base font-semibold">Destinations in India</Label>
-                  {places.map((place, index) => (
-                    <div key={index} className="flex flex-col sm:flex-row gap-2">
+                  {places.length === 0 ? (
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <Input
-                        placeholder={`Destination ${index + 1} (e.g., Mumbai, Kerala, Delhi)`}
-                        value={place}
-                        onChange={(e) => updatePlace(index, e.target.value)}
+                        placeholder="Destination 1 (e.g., Mumbai, Kerala, Delhi)"
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            setPlaces([e.target.value]);
+                          }
+                        }}
                         className="flex-1 touch-target"
                       />
-                      {places.length > 1 && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => removePlace(index)}
-                          className="btn-mobile touch-target"
-                        >
-                          Remove
-                        </Button>
-                      )}
                     </div>
-                  ))}
+                  ) : (
+                    places.map((place, index) => (
+                      <div key={index} className="flex flex-col sm:flex-row gap-2">
+                        <Input
+                          placeholder={`Destination ${index + 1} (e.g., Mumbai, Kerala, Delhi)`}
+                          value={place}
+                          onChange={(e) => updatePlace(index, e.target.value)}
+                          className="flex-1 touch-target"
+                        />
+                        {places.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => removePlace(index)}
+                            className="btn-mobile touch-target"
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </div>
+                    ))
+                  )}
                   <Button
                     type="button"
                     variant="outline"
@@ -1184,8 +1346,8 @@ export default function Home() {
                       type="number"
                       min={1}
                       max={30}
-                      value={days}
-                      onChange={(e) => setDays(Number(e.target.value))}
+                      value={days || ""}
+                      onChange={(e) => setDays(e.target.value ? Number(e.target.value) : undefined)}
                       placeholder="Leave empty for auto-calculation"
                       className="touch-target"
                     />
@@ -1197,8 +1359,8 @@ export default function Home() {
                       type="number"
                       min={1}
                       max={20}
-                      value={travelers}
-                      onChange={(e) => setTravelers(Number(e.target.value))}
+                      value={travelers || ""}
+                      onChange={(e) => setTravelers(e.target.value ? Number(e.target.value) : undefined)}
                       placeholder="Leave empty for auto-calculation"
                       className="touch-target"
                     />
@@ -1209,8 +1371,8 @@ export default function Home() {
                       id="budget"
                       type="number"
                       min={1000}
-                      value={budget}
-                      onChange={(e) => setBudget(Number(e.target.value))}
+                      value={budget || ""}
+                      onChange={(e) => setBudget(e.target.value ? Number(e.target.value) : undefined)}
                       placeholder="Leave empty for auto-calculation"
                       className="touch-target"
                     />
@@ -1221,9 +1383,9 @@ export default function Home() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="travelStyle" className="text-mobile-sm">Travel Style</Label>
-                    <Select value={travelStyle} onValueChange={setTravelStyle}>
+                    <Select value={travelStyle || undefined} onValueChange={setTravelStyle}>
                       <SelectTrigger className="touch-target">
-                        <SelectValue />
+                        <SelectValue placeholder="Select travel style" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="budget">Budget</SelectItem>
@@ -1235,9 +1397,9 @@ export default function Home() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="accommodation">Accommodation Type</Label>
-                    <Select value={accommodationType} onValueChange={setAccommodationType}>
+                    <Select value={accommodationType || undefined} onValueChange={setAccommodationType}>
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue placeholder="Select accommodation type" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="budget-hotel">Budget Hotel</SelectItem>
@@ -1251,9 +1413,9 @@ export default function Home() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="transportation">Transportation</Label>
-                    <Select value={transportationType} onValueChange={setTransportationType}>
+                    <Select value={transportationType || undefined} onValueChange={setTransportationType}>
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue placeholder="Select transportation type" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="train">Train</SelectItem>
@@ -1462,8 +1624,9 @@ export default function Home() {
                       id="budgetINR"
                       type="number"
                       min={5000}
-                      value={budgetINR}
-                      onChange={(e) => setBudgetINR(Number(e.target.value))}
+                      value={budgetINR || ""}
+                      onChange={(e) => setBudgetINR(e.target.value ? Number(e.target.value) : undefined)}
+                      placeholder="Enter your total budget (e.g., 50000)"
                       className="touch-target"
                     />
                   </div>
@@ -1474,8 +1637,9 @@ export default function Home() {
                       type="number"
                       min={2}
                       max={30}
-                      value={suggestDays}
-                      onChange={(e) => setSuggestDays(Number(e.target.value))}
+                      value={suggestDays || ""}
+                      onChange={(e) => setSuggestDays(e.target.value ? Number(e.target.value) : undefined)}
+                      placeholder="Enter number of days (e.g., 5)"
                       className="touch-target"
                     />
                   </div>
@@ -1486,8 +1650,9 @@ export default function Home() {
                       type="number"
                       min={1}
                       max={20}
-                      value={groupSize}
-                      onChange={(e) => setGroupSize(Number(e.target.value))}
+                      value={groupSize || ""}
+                      onChange={(e) => setGroupSize(e.target.value ? Number(e.target.value) : undefined)}
+                      placeholder="Enter number of travelers (e.g., 2)"
                       className="touch-target"
                     />
                   </div>
@@ -1497,9 +1662,9 @@ export default function Home() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="suggestTravelStyle" className="text-mobile-sm">Travel Style</Label>
-                    <Select value={suggestTravelStyle} onValueChange={setSuggestTravelStyle}>
+                    <Select value={suggestTravelStyle || undefined} onValueChange={setSuggestTravelStyle}>
                       <SelectTrigger className="touch-target">
-                        <SelectValue />
+                        <SelectValue placeholder="Select travel style" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="budget">Budget</SelectItem>
@@ -1511,9 +1676,9 @@ export default function Home() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="preferredSeason">Preferred Season</Label>
-                    <Select value={preferredSeason} onValueChange={setPreferredSeason}>
+                    <Select value={preferredSeason || undefined} onValueChange={setPreferredSeason}>
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue placeholder="Select preferred season" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="any">Any Season</SelectItem>
@@ -1526,15 +1691,90 @@ export default function Home() {
                   </div>
                 </div>
 
+                {/* Transportation */}
+                <div className="space-y-2">
+                  <Label htmlFor="suggestTransportation">Transportation</Label>
+                  <Select value={suggestTransportationType || undefined} onValueChange={setSuggestTransportationType}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select transportation type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="train">Train</SelectItem>
+                      <SelectItem value="bus">Bus</SelectItem>
+                      <SelectItem value="car">Car Rental</SelectItem>
+                      <SelectItem value="flight">Flight</SelectItem>
+                      <SelectItem value="mix">Mix</SelectItem>
+                      <SelectItem value="na">NA (Not Needed)</SelectItem>
+                      <SelectItem value="own-vehicle">Own Vehicle</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Vehicle Details - Only show when "Own Vehicle" is selected */}
+                {suggestTransportationType === "own-vehicle" && (
+                  <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
+                    <h3 className="text-lg font-semibold">Vehicle Details</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="suggestVehicleType">Vehicle Type</Label>
+                        <Select value={suggestVehicleType} onValueChange={setSuggestVehicleType}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select vehicle type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="bike">Bike/Motorcycle</SelectItem>
+                            <SelectItem value="car">Car</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="suggestVehicleMileage">Mileage (km/liter)</Label>
+                        <Input
+                          id="suggestVehicleMileage"
+                          type="number"
+                          min={1}
+                          max={50}
+                          value={suggestVehicleMileage}
+                          onChange={(e) => setSuggestVehicleMileage(e.target.value)}
+                          placeholder="e.g., 15"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="suggestFuelType">Fuel Type</Label>
+                        <Select value={suggestFuelType} onValueChange={setSuggestFuelType}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select fuel type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="petrol">Petrol</SelectItem>
+                            <SelectItem value="diesel">Diesel</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="suggestFuelCostPerLiter">Fuel Cost (₹/liter)</Label>
+                        <Input
+                          id="suggestFuelCostPerLiter"
+                          type="number"
+                          min={50}
+                          max={200}
+                          value={suggestFuelCostPerLiter}
+                          onChange={(e) => setSuggestFuelCostPerLiter(e.target.value)}
+                          placeholder="e.g., 100"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Preferred Location */}
                 <div className="space-y-2">
-                  <Label htmlFor="preferredLocation">Preferred Location/State/District</Label>
+                  <Label htmlFor="preferredLocation">Preferred Location/State/District (Optional)</Label>
                   <Input
                     id="preferredLocation"
-                    placeholder="e.g., Kerala, Goa, Rajasthan, Shimla, Manali"
+                    placeholder="Enter location (e.g., Kerala, Goa, Rajasthan, Shimla, Manali)"
                     value={preferredLocation}
                     onChange={(e) => setPreferredLocation(e.target.value)}
-                    required
                   />
                   <p className="text-xs text-muted-foreground">
                     Specify a particular state, district, or city you'd like to visit
@@ -1625,6 +1865,14 @@ export default function Home() {
           <Card className="border-red-200 bg-red-50">
             <CardContent className="pt-6">
               <p className="text-red-600">{errorMsg}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {budgetWarning && (
+          <Card className="border-yellow-200 bg-yellow-50">
+            <CardContent className="pt-6">
+              <p className="text-yellow-800 font-medium">⚠️ {budgetWarning}</p>
             </CardContent>
           </Card>
         )}

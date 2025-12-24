@@ -4,6 +4,7 @@ import { getGenerativeModel } from "@/lib/gemini";
 import { getGroqClient, getGroqModel } from "@/lib/groq";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { generateMapsSearchUrl, generateLocationQuery } from "@/lib/maps";
+import { isPlaceInIndia } from "@/lib/placeValidator";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -487,6 +488,20 @@ async function retryWithMinimalSchema(requestData: any, maxPlaces: number) {
   
   if (!budgetINR) return NextResponse.json({ error: "Missing budgetINR" }, { status: 400 });
 
+  // Validate that preferredLocation is within India (if provided)
+  if (preferredLocation && preferredLocation.trim() !== "") {
+    const isInIndia = await isPlaceInIndia(preferredLocation);
+    if (!isInIndia) {
+      return NextResponse.json(
+        { 
+          error: "Please provide places within India",
+          invalidLocation: preferredLocation
+        },
+        { status: 400 }
+      );
+    }
+  }
+
   const interestsList = Array.isArray(interests) ? interests.join(", ") : interests.join(", ");
 
   const prompt = `You are an expert Indian travel planner. Suggest EXACTLY ${maxPlaces} destinations ONLY within ${preferredLocation || 'India'} that fit within a total budget of ₹${budgetINR.toLocaleString()} INR for a ${days}-day trip.
@@ -619,20 +634,65 @@ export async function POST(request: Request) {
     travelStyle = "balanced",
     interests = [],
     preferredSeason,
-    groupSize = 2
+    groupSize = 2,
+    transportationType,
+    vehicleType,
+    vehicleMileage,
+    fuelType,
+    fuelCostPerLiter
   } = await request.json();
   
   if (!budgetINR) return NextResponse.json({ error: "Missing budgetINR" }, { status: 400 });
 
+  // Validate that preferredLocation is within India (if provided)
+  if (preferredLocation && preferredLocation.trim() !== "") {
+    const isInIndia = await isPlaceInIndia(preferredLocation);
+    if (!isInIndia) {
+      return NextResponse.json(
+        { 
+          error: "Please provide places within India",
+          invalidLocation: preferredLocation
+        },
+        { status: 400 }
+      );
+    }
+  }
+
   const interestsList = Array.isArray(interests) ? interests.join(", ") : interests.join(", ");
 
-  // Calculate budget allocation
-  const budgetPerDay = budgetINR / days;
+  // Calculate transportation cost first
+  let transportationCost = 0;
+  if (transportationType === "own-vehicle" && vehicleType && vehicleMileage && fuelType && fuelCostPerLiter) {
+    // Calculate fuel cost based on vehicle details
+    const fuelCost = parseFloat(fuelCostPerLiter);
+    const mileage = parseFloat(vehicleMileage);
+    if (!isNaN(fuelCost) && !isNaN(mileage) && mileage > 0) {
+      const estimatedDistance = days * 200; // Average 200km per day
+      const fuelNeeded = estimatedDistance / mileage;
+      transportationCost = Math.round(fuelNeeded * fuelCost);
+    }
+  } else if (transportationType && transportationType !== "na") {
+    // Calculate transportation cost based on type
+    let transportPerPersonPerDay = 0;
+    switch (transportationType) {
+      case "train": transportPerPersonPerDay = 500; break;
+      case "bus": transportPerPersonPerDay = 300; break;
+      case "car": transportPerPersonPerDay = 2000; break;
+      case "flight": transportPerPersonPerDay = 3000; break;
+      case "mix": transportPerPersonPerDay = 1000; break;
+      default: transportPerPersonPerDay = 1000;
+    }
+    transportationCost = transportPerPersonPerDay * days * groupSize;
+  }
+
+  // Calculate budget allocation (subtract transportation first)
+  const remainingBudget = budgetINR - transportationCost;
+  const budgetPerDay = remainingBudget / days;
   const budgetPerPerson = budgetPerDay / groupSize;
   
   // Allocate budget for accommodation if requested
   let accommodationBudget = 0;
-  let activityBudget = budgetINR;
+  let activityBudget = remainingBudget;
   
   if (includeAccommodation) {
     // Allocate 40% of remaining budget for accommodation, 60% for activities
@@ -838,6 +898,12 @@ Rules: Valid JSON only. Cost <= ₹${budgetINR}. Realistic costs. Keep responses
       interests,
       preferredSeason,
       groupSize,
+      transportationType,
+      vehicleType,
+      vehicleMileage,
+      fuelType,
+      fuelCostPerLiter,
+      transportationCost,
       budgetAnalysis: {
         budgetPerDay,
         budgetPerPerson,
@@ -847,7 +913,8 @@ Rules: Valid JSON only. Cost <= ₹${budgetINR}. Realistic costs. Keep responses
         activityBudgetPerDay,
         activityBudgetPerPerson,
         numberOfPlaces,
-        accommodationLevel
+        accommodationLevel,
+        transportationCost
       }
     };
     

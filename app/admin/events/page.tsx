@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, MapPin, Clock, Users, IndianRupee, Edit, Trash2 } from "lucide-react";
+import { Calendar, MapPin, Clock, Users, IndianRupee, Edit, Trash2, Upload, Download, FileSpreadsheet } from "lucide-react";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -45,6 +45,8 @@ export default function AdminEventsPage() {
 
   const [editingEvent, setEditingEvent] = useState<any>(null);
   const [deletingEventId, setDeletingEventId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
 
   // Check admin status
   useEffect(() => {
@@ -269,12 +271,131 @@ export default function AdminEventsPage() {
     resetForm();
   }
 
+  async function downloadTemplate() {
+    try {
+      const response = await fetch("/api/admin/events/download-template");
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "events-template.xlsx";
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        alert("Template downloaded successfully!");
+      } else {
+        alert("Failed to download template");
+      }
+    } catch (error) {
+      console.error("Download error:", error);
+      alert("Failed to download template");
+    }
+  }
+
+  async function handleBulkImport(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+      alert("Please upload an Excel file (.xlsx or .xls)");
+      return;
+    }
+
+    setUploading(true);
+    setImportResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("/api/admin/events/bulk-import", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setImportResult(`✅ ${data.message}`);
+        if (data.results.errors.length > 0) {
+          setImportResult(`${data.message}\n\nErrors:\n${data.results.errors.slice(0, 10).join('\n')}${data.results.errors.length > 10 ? `\n... and ${data.results.errors.length - 10} more errors` : ''}`);
+        }
+        // Refresh the events list
+        await mutate("/api/admin/events");
+        // Reset file input
+        event.target.value = '';
+      } else {
+        setImportResult(`❌ Error: ${data.error || "Failed to import events"}`);
+      }
+    } catch (error: any) {
+      console.error("Import error:", error);
+      setImportResult(`❌ Error: ${error.message || "Failed to import events"}`);
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-6 py-10 space-y-6">
       <div className="text-center mb-8">
         <h1 className="text-3xl font-bold text-red-600 mb-2">🔒 Admin Panel</h1>
         <p className="text-lg text-muted-foreground">Manage Events - Admin Only</p>
       </div>
+
+      {/* Bulk Import Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileSpreadsheet className="w-5 h-5" />
+            Bulk Import Events from Excel
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <Button
+              onClick={downloadTemplate}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Download Excel Template
+            </Button>
+            <div className="flex-1">
+              <label htmlFor="excel-upload-events" className="cursor-pointer">
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleBulkImport}
+                  disabled={uploading}
+                  className="hidden"
+                  id="excel-upload-events"
+                />
+                <Button
+                  type="button"
+                  variant="default"
+                  disabled={uploading}
+                  className="w-full sm:w-auto flex items-center gap-2"
+                  onClick={() => document.getElementById('excel-upload-events')?.click()}
+                >
+                  <Upload className="w-4 h-4" />
+                  {uploading ? "Uploading..." : "Upload Excel File"}
+                </Button>
+              </label>
+            </div>
+          </div>
+          {importResult && (
+            <div className={`p-4 rounded-md ${importResult.startsWith('✅') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+              <pre className="whitespace-pre-wrap text-sm">{importResult}</pre>
+            </div>
+          )}
+          <p className="text-sm text-muted-foreground">
+            Download the template, fill in your events data, and upload the Excel file to import multiple events at once.
+          </p>
+        </CardContent>
+      </Card>
       
       <Card>
         <CardHeader>
