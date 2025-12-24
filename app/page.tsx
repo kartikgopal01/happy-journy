@@ -1305,25 +1305,25 @@ export default function Home() {
                     </div>
                   ) : (
                     places.map((place, index) => (
-                      <div key={index} className="flex flex-col sm:flex-row gap-2">
-                        <Input
-                          placeholder={`Destination ${index + 1} (e.g., Mumbai, Kerala, Delhi)`}
-                          value={place}
-                          onChange={(e) => updatePlace(index, e.target.value)}
-                          className="flex-1 touch-target"
-                        />
-                        {places.length > 1 && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => removePlace(index)}
-                            className="btn-mobile touch-target"
-                          >
-                            Remove
-                          </Button>
-                        )}
-                      </div>
+                    <div key={index} className="flex flex-col sm:flex-row gap-2">
+                      <Input
+                        placeholder={`Destination ${index + 1} (e.g., Mumbai, Kerala, Delhi)`}
+                        value={place}
+                        onChange={(e) => updatePlace(index, e.target.value)}
+                        className="flex-1 touch-target"
+                      />
+                      {places.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => removePlace(index)}
+                          className="btn-mobile touch-target"
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
                     ))
                   )}
                   <Button
